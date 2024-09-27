@@ -59,7 +59,7 @@ int main() {
     unsigned char *iv = (unsigned char *)"fedcba9876543210fedcba9876543210";
  
     // 原文和密文
-    unsigned char *plaintext = (unsigned char *)"Hello World!";
+    unsigned char *plaintext = (unsigned char *)"Hello World! -YWQ";
     int plaintext_len = strlen((const char *)plaintext);
     unsigned char ciphertext[128];
     unsigned char decryptedtext[128];
