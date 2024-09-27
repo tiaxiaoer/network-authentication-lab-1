@@ -1,144 +1,132 @@
 #include <stdio.h>
-#include <stdlib.h>
-#include <gmp.h>
+#include <openssl/bn.h>
+#include <openssl/dh.h>
+#include <openssl/rand.h>
 
-// ElGamal 公钥结构
+// ElGamal 密钥结构
 typedef struct {
-    mpz_t p; // 大素数
-    mpz_t g; // 生成元
-    mpz_t y; // y = g^x mod p, x 是私钥
-} ElGamalPublicKey;
+    BIGNUM *p;  // 大素数
+    BIGNUM *g;  // 生成元
+    BIGNUM *x;  // 私钥
+    BIGNUM *y;  // 公钥
+} ElGamalKey;
 
-// ElGamal 私钥结构
-typedef struct {
-    mpz_t p; // 与公钥相同的大素数
-    mpz_t x; // 私钥 x
-} ElGamalPrivateKey;
-
-// 初始化 ElGamal 公钥和私钥
-void elgamal_keygen(ElGamalPublicKey *pubKey, ElGamalPrivateKey *privKey, unsigned int key_size) {
-    mpz_t q;
-    mpz_init(q);
-
-    // 初始化 p 和 g
-    mpz_init(pubKey->p);
-    mpz_init(pubKey->g);
-    mpz_init(pubKey->y);
-    mpz_init(privKey->p);
-    mpz_init(privKey->x);
+// 初始化 ElGamal 密钥
+void elgamal_keygen(ElGamalKey *key, int bits) {
+    // 初始化 BIGNUM 结构
+    key->p = BN_new();
+    key->g = BN_new();
+    key->x = BN_new();
+    key->y = BN_new();
 
     // 生成大素数 p
-    gmp_randstate_t state;
-    gmp_randinit_default(state);
-    gmp_randseed_ui(state, rand());
-    mpz_urandomb(pubKey->p, state, key_size);
-    mpz_nextprime(pubKey->p, pubKey->p);
+    BN_generate_prime_ex(key->p, bits, 1, NULL, NULL, NULL);
 
-    // 设置 g 为 p 的生成元
-    mpz_set_ui(pubKey->g, 2);
+    // 设置生成元 g 为 2
+    BN_set_word(key->g, 2);
 
     // 生成私钥 x (1 < x < p-1)
-    mpz_sub_ui(q, pubKey->p, 1);
-    mpz_urandomm(privKey->x, state, q);
-    mpz_add_ui(privKey->x, privKey->x, 1); // 保证 x > 1
+    BIGNUM *p_minus_1 = BN_new();
+    BN_copy(p_minus_1, key->p);
+    BN_sub_word(p_minus_1, 1);
+    BN_rand_range(key->x, p_minus_1);
 
     // 生成公钥 y = g^x mod p
-    mpz_powm(pubKey->y, pubKey->g, privKey->x, pubKey->p);
+    BN_CTX *ctx = BN_CTX_new();
+    BN_mod_exp(key->y, key->g, key->x, key->p, ctx);
 
-    // 私钥的 p 与公钥的 p 相同
-    mpz_set(privKey->p, pubKey->p);
-
-    mpz_clear(q);
-    gmp_randclear(state);
+    // 释放临时变量
+    BN_free(p_minus_1);
+    BN_CTX_free(ctx);
 }
 
-// 使用公钥进行 ElGamal 加密
-void elgamal_encrypt(mpz_t ciphertext1, mpz_t ciphertext2, const mpz_t message, const ElGamalPublicKey *pubKey) {
-    mpz_t k, p1;
-    mpz_init(k);
-    mpz_init(p1);
+// 使用 ElGamal 公钥加密
+void elgamal_encrypt(BIGNUM *c1, BIGNUM *c2, const BIGNUM *message, const ElGamalKey *key) {
+    BIGNUM *k = BN_new();
+    BIGNUM *g_k = BN_new();
+    BIGNUM *y_k = BN_new();
+
+    BN_CTX *ctx = BN_CTX_new();
 
     // 生成随机数 k (1 < k < p-1)
-    mpz_t q;
-    mpz_init(q);
-    mpz_sub_ui(q, pubKey->p, 1);
-    gmp_randstate_t state;
-    gmp_randinit_default(state);
-    gmp_randseed_ui(state, rand());
-    mpz_urandomm(k, state, q);
-    mpz_add_ui(k, k, 1);
+    BIGNUM *p_minus_1 = BN_new();
+    BN_copy(p_minus_1, key->p);
+    BN_sub_word(p_minus_1, 1);
+    BN_rand_range(k, p_minus_1);
 
-    // 计算 ciphertext1 = g^k mod p
-    mpz_powm(ciphertext1, pubKey->g, k, pubKey->p);
+    // 计算 c1 = g^k mod p
+    BN_mod_exp(c1, key->g, k, key->p, ctx);
 
-    // 计算 ciphertext2 = m * y^k mod p
-    mpz_powm(p1, pubKey->y, k, pubKey->p);
-    mpz_mul(ciphertext2, message, p1);
-    mpz_mod(ciphertext2, ciphertext2, pubKey->p);
+    // 计算 c2 = m * y^k mod p
+    BN_mod_exp(y_k, key->y, k, key->p, ctx);
+    BN_mod_mul(c2, message, y_k, key->p, ctx);
 
-    mpz_clear(k);
-    mpz_clear(p1);
-    mpz_clear(q);
-    gmp_randclear(state);
+    // 释放临时变量
+    BN_free(k);
+    BN_free(g_k);
+    BN_free(y_k);
+    BN_free(p_minus_1);
+    BN_CTX_free(ctx);
 }
 
-// 使用私钥进行 ElGamal 解密
-void elgamal_decrypt(mpz_t message, const mpz_t ciphertext1, const mpz_t ciphertext2, const ElGamalPrivateKey *privKey) {
-    mpz_t p1;
-    mpz_init(p1);
+// 使用 ElGamal 私钥解密
+void elgamal_decrypt(BIGNUM *message, const BIGNUM *c1, const BIGNUM *c2, const ElGamalKey *key) {
+    BIGNUM *c1_x = BN_new();
+    BIGNUM *inv_c1_x = BN_new();
+    BN_CTX *ctx = BN_CTX_new();
 
-    // 计算 p1 = ciphertext1^x mod p
-    mpz_powm(p1, ciphertext1, privKey->x, privKey->p);
+    // 计算 c1^x mod p
+    BN_mod_exp(c1_x, c1, key->x, key->p, ctx);
 
-    // 计算 m = ciphertext2 / p1 mod p
-    mpz_invert(p1, p1, privKey->p);
-    mpz_mul(message, ciphertext2, p1);
-    mpz_mod(message, message, privKey->p);
+    // 计算 c1^(-x) mod p
+    BN_mod_inverse(inv_c1_x, c1_x, key->p, ctx);
 
-    mpz_clear(p1);
+    // 计算 m = c2 * c1^(-x) mod p
+    BN_mod_mul(message, c2, inv_c1_x, key->p, ctx);
+
+    // 释放临时变量
+    BN_free(c1_x);
+    BN_free(inv_c1_x);
+    BN_CTX_free(ctx);
 }
 
 int main() {
-    // 初始化公钥和私钥
-    ElGamalPublicKey pubKey;
-    ElGamalPrivateKey privKey;
-    elgamal_keygen(&pubKey, &privKey, 512);  // 生成 512 位密钥
+    // 初始化 ElGamal 密钥
+    ElGamalKey key;
+    elgamal_keygen(&key, 512);  // 生成 512 位密钥
 
-    // 明文消息 (例如 42)
-    mpz_t message;
-    mpz_init_set_ui(message, 42);
+    // 明文消息
+    BIGNUM *message = BN_new();
+    BN_set_word(message, 42);  // 加密消息 42
 
     // 加密
-    mpz_t ciphertext1, ciphertext2;
-    mpz_init(ciphertext1);
-    mpz_init(ciphertext2);
-    elgamal_encrypt(ciphertext1, ciphertext2, message, &pubKey);
+    BIGNUM *c1 = BN_new();
+    BIGNUM *c2 = BN_new();
+    elgamal_encrypt(c1, c2, message, &key);
 
     printf("Ciphertext1: ");
-    mpz_out_str(stdout, 10, ciphertext1);
+    BN_print_fp(stdout, c1);
     printf("\nCiphertext2: ");
-    mpz_out_str(stdout, 10, ciphertext2);
+    BN_print_fp(stdout, c2);
     printf("\n");
 
     // 解密
-    mpz_t decrypted_message;
-    mpz_init(decrypted_message);
-    elgamal_decrypt(decrypted_message, ciphertext1, ciphertext2, &privKey);
+    BIGNUM *decrypted_message = BN_new();
+    elgamal_decrypt(decrypted_message, c1, c2, &key);
 
     printf("Decrypted message: ");
-    mpz_out_str(stdout, 10, decrypted_message);
+    BN_print_fp(stdout, decrypted_message);
     printf("\n");
 
-    // 清除内存
-    mpz_clear(message);
-    mpz_clear(ciphertext1);
-    mpz_clear(ciphertext2);
-    mpz_clear(decrypted_message);
-    mpz_clear(pubKey.p);
-    mpz_clear(pubKey.g);
-    mpz_clear(pubKey.y);
-    mpz_clear(privKey.p);
-    mpz_clear(privKey.x);
+    // 释放内存
+    BN_free(message);
+    BN_free(c1);
+    BN_free(c2);
+    BN_free(decrypted_message);
+    BN_free(key.p);
+    BN_free(key.g);
+    BN_free(key.x);
+    BN_free(key.y);
 
     return 0;
 }
