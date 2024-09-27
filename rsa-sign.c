@@ -63,6 +63,7 @@ int main() {
 
     // 签名
     unsigned char* sig = sign_message(rsa, message, &sig_len);
+    printf("Signature: %s\n", sig);
     printf("Signature generated successfully!\n");
 
     // 验证签名
