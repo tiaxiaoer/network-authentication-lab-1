@@ -53,22 +53,26 @@ void print_bignum(const BIGNUM *bn) {
 int main() {
     // 生成 DH 密钥对 A
     DH *dhA = generate_dh_key();
+    const BIGNUM *pub_key_A, *priv_key_A;
+    DH_get0_key(dhA, &pub_key_A, &priv_key_A);
     printf("A's public key:\n");
-    print_bignum(dhA->pub_key);
+    print_bignum(pub_key_A);
 
     // 生成 DH 密钥对 B
     DH *dhB = generate_dh_key();
+    const BIGNUM *pub_key_B, *priv_key_B;
+    DH_get0_key(dhB, &pub_key_B, &priv_key_B);
     printf("B's public key:\n");
-    print_bignum(dhB->pub_key);
+    print_bignum(pub_key_B);
 
     // A 计算共享密钥
     int secret_len_A;
-    unsigned char *shared_secret_A = compute_shared_secret(dhA, dhB->pub_key, &secret_len_A);
+    unsigned char *shared_secret_A = compute_shared_secret(dhA, pub_key_B, &secret_len_A);
     printf("A's shared secret length: %d\n", secret_len_A);
 
     // B 计算共享密钥
     int secret_len_B;
-    unsigned char *shared_secret_B = compute_shared_secret(dhB, dhA->pub_key, &secret_len_B);
+    unsigned char *shared_secret_B = compute_shared_secret(dhB, pub_key_A, &secret_len_B);
     printf("B's shared secret length: %d\n", secret_len_B);
 
     // 检查共享密钥是否相同
