@@ -11,14 +11,38 @@ void handleErrors() {
     abort();
 }
 
-// 生成 DH 密钥对
-DH* generate_dh_key() {
+// 生成并返回固定的 DH 参数 (p 和 g)
+DH* get_dh_params() {
     DH *dh = DH_new();
     if (dh == NULL) handleErrors();
 
-    // 生成 DH 参数
-    int prime_len = 2048;
-    if (DH_generate_parameters_ex(dh, prime_len, DH_GENERATOR_2, NULL) != 1) {
+    // 使用预定义的安全参数 p 和 g
+    const char *p_hex = "FFFFFFFFFFFFFFFFC90FDAA22168C234C4C6628B80DC1CD129024E08"
+                        "8A67CC74020BBEA63B139B22514A08798E3404DDEF9519B3CD"
+                        "3A431B302B0A6DF25F14374FE1356D6D51C245E485B576625E7"
+                        "EC6F44C42E9A637ED6B0BFF5CB6F406B7ED5AF080777109839A"
+                        "25204742D1843AEE9F07FCB6F423F87796094A0A0F743D87F57"
+                        "D438732BE";
+    const char *g_hex = "02";
+
+    BIGNUM *p = NULL, *g = NULL;
+    if (!BN_hex2bn(&p, p_hex) || !BN_hex2bn(&g, g_hex)) {
+        handleErrors();
+    }
+
+    if (!DH_set0_pqg(dh, p, NULL, g)) {
+        handleErrors();
+    }
+
+    return dh;
+}
+
+// 生成 DH 密钥对
+DH* generate_dh_key(DH *dh_params) {
+    DH *dh = DH_new();
+    if (dh == NULL) handleErrors();
+
+    if (!DH_set0_pqg(dh, BN_dup(DH_get0_p(dh_params)), NULL, BN_dup(DH_get0_g(dh_params)))) {
         handleErrors();
     }
 
@@ -51,15 +75,17 @@ void print_bignum(const BIGNUM *bn) {
 }
 
 int main() {
-    // 生成 DH 密钥对 A
-    DH *dhA = generate_dh_key();
+    // 获取固定的 DH 参数
+    DH *dh_params = get_dh_params();
+
+    // A 和 B 使用相同的 DH 参数
+    DH *dhA = generate_dh_key(dh_params);
     const BIGNUM *pub_key_A, *priv_key_A;
     DH_get0_key(dhA, &pub_key_A, &priv_key_A);
     printf("A's public key:\n");
     print_bignum(pub_key_A);
 
-    // 生成 DH 密钥对 B
-    DH *dhB = generate_dh_key();
+    DH *dhB = generate_dh_key(dh_params);
     const BIGNUM *pub_key_B, *priv_key_B;
     DH_get0_key(dhB, &pub_key_B, &priv_key_B);
     printf("B's public key:\n");
@@ -87,6 +113,7 @@ int main() {
     free(shared_secret_B);
     DH_free(dhA);
     DH_free(dhB);
+    DH_free(dh_params);
 
     return 0;
 }
